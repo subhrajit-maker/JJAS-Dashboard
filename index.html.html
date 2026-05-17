@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JJAS Account Stage Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+
+/* ── PAGES ── */
+.page{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 20px;gap:20px}
+.page h1{font-size:22px;font-weight:700;color:#fff;text-align:center}
+.page>p{font-size:13px;color:#718096;text-align:center;max-width:440px;line-height:1.6}
+
+/* ── DROP ZONE ── */
+.drop-zone{width:100%;max-width:480px;border:2px dashed #2d3748;border-radius:14px;padding:40px 28px;display:flex;flex-direction:column;align-items:center;gap:12px;cursor:pointer;transition:all .2s;background:#1a1f2e;text-align:center}
+.drop-zone:hover,.drop-zone.over{border-color:#3b4fd8;background:#1e243a}
+.dz-icon{font-size:36px}
+.dz-title{font-size:15px;font-weight:600;color:#e2e8f0}
+.dz-sub{font-size:13px;color:#718096}
+.dz-sub b{color:#63b3ed}
+input[type=file]{display:none}
+
+/* ── MAPPING PAGE ── */
+.map-wrap{width:100%;max-width:960px;display:flex;flex-direction:column;gap:18px;padding:28px 20px 40px;margin:0 auto}
+.map-wrap h2{font-size:20px;font-weight:700;color:#fff}
+.map-wrap>p{font-size:13px;color:#718096;line-height:1.6}
+
+/* raw preview table */
+.raw-preview{overflow-x:auto;border-radius:8px;border:1px solid #2d3748;margin-bottom:4px}
+.raw-preview table{border-collapse:collapse;font-size:11px;white-space:nowrap}
+.raw-preview th{background:#1a1f2e;color:#718096;padding:6px 10px;border-right:1px solid #2d3748;border-bottom:1px solid #2d3748;font-weight:600;text-align:left;position:sticky;top:0}
+.raw-preview td{padding:5px 10px;border-right:1px solid #1a2033;border-bottom:1px solid #1a2033;color:#a0aec0;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.raw-preview tr:last-child td{border-bottom:none}
+.raw-preview td:first-child,.raw-preview th:first-child{color:#4a5568;background:#131720;position:sticky;left:0;z-index:1}
+
+/* mapping card */
+.map-card{background:#1a1f2e;border:1px solid #2d3748;border-radius:12px;overflow:hidden}
+.map-card-hd{display:grid;grid-template-columns:1fr 22px 200px 1fr;gap:12px;padding:9px 16px;background:#131720;border-bottom:1px solid #2d3748}
+.map-card-hd span{font-size:10px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.6px}
+.map-row{display:grid;grid-template-columns:1fr 22px 200px 1fr;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid #1a2033}
+.map-row:last-child{border-bottom:none}
+.map-row:hover{background:#161b28}
+.field-info .fl{font-size:13px;font-weight:600;color:#e2e8f0}
+.field-info .fd{font-size:11px;color:#718096;margin-top:2px}
+.arrow{color:#4a5568;text-align:center;font-size:15px}
+.map-row select{width:100%;background:#0f1117;border:1px solid #2d3748;color:#e2e8f0;padding:7px 10px;border-radius:6px;font-size:12px;cursor:pointer;outline:none}
+.map-row select:focus{border-color:#3b4fd8}
+.map-row select.matched{border-color:#68d391;color:#e2e8f0}
+.map-row select.unmatched{border-color:#4a5568;color:#4a5568}
+.sample{font-size:11px;color:#a0aec0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sample.empty{color:#4a5568;font-style:italic}
+.rbadge{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;margin-left:5px;vertical-align:middle}
+.req{background:rgba(252,129,129,.15);color:#fc8181}
+.opt{background:rgba(113,128,150,.15);color:#718096}
+
+/* buttons */
+.btn{padding:8px 18px;border-radius:7px;border:none;font-size:13px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap}
+.btn-primary{background:#3b4fd8;color:#fff}.btn-primary:hover{background:#4f63e8}
+.btn-ghost{background:#2d3748;color:#a0aec0}.btn-ghost:hover{background:#3d4a5c;color:#e2e8f0}
+.map-footer{display:flex;align-items:center;gap:10px}
+.map-footer-note{flex:1;font-size:12px;color:#4a5568}
+.err{background:rgba(252,129,129,.1);border:1px solid rgba(252,129,129,.3);color:#fc8181;border-radius:8px;padding:10px 16px;font-size:13px;display:none}
+.err.show{display:block}
+
+/* ── FILE BAR ── */
+.fbar{background:#161b28;border-bottom:1px solid #2d3748;padding:9px 28px;display:none;align-items:center;gap:12px;flex-wrap:wrap}
+.fbar.on{display:flex}
+.fdot{width:8px;height:8px;background:#68d391;border-radius:50%}
+.finfo{font-size:12px;color:#718096}.finfo b{color:#68d391}
+
+/* ── HEADER ── */
+.hdr{background:#161b28;border-bottom:1px solid #2d3748;padding:15px 28px;display:flex;align-items:center;justify-content:space-between}
+.hdr h1{font-size:19px;font-weight:700;color:#fff}
+.hdr .sub{font-size:12px;color:#718096;margin-top:3px}
+.badge{background:#2d3748;color:#a0aec0;font-size:11px;padding:4px 10px;border-radius:20px}
+
+/* ── CONTROLS ── */
+.ctrl{background:#161b28;border-bottom:1px solid #2d3748;padding:11px 28px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.mtabs{display:flex;gap:3px}
+.mtab{background:transparent;border:1px solid #2d3748;color:#718096;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500;transition:all .15s}
+.mtab:hover{border-color:#4a5568;color:#cbd5e0}
+.mtab.on{background:#3b4fd8;border-color:#3b4fd8;color:#fff}
+.fg{display:flex;align-items:center;gap:6px}
+.fl{font-size:11px;color:#718096;white-space:nowrap;text-transform:uppercase;letter-spacing:.4px}
+select{background:#1a1f2e;border:1px solid #2d3748;color:#e2e8f0;padding:6px 9px;border-radius:6px;font-size:12px;cursor:pointer;outline:none;max-width:160px}
+select:hover{border-color:#4a5568}
+
+/* ── METRICS ── */
+.mbar{background:#161b28;padding:12px 28px;display:flex;gap:10px;border-bottom:1px solid #2d3748;flex-wrap:wrap}
+.mc{background:#1a1f2e;border:1px solid #2d3748;border-radius:8px;padding:10px 14px;min-width:90px;flex:1}
+.mc .ml{font-size:11px;color:#718096;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.mc .mv{font-size:20px;font-weight:700}
+.mc .mp{font-size:11px;margin-top:1px}
+
+/* ── MAIN TABLE ── */
+.main{padding:16px 28px}
+.leg{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.li{display:flex;align-items:center;gap:5px;font-size:12px;color:#a0aec0}
+.ld{width:10px;height:10px;border-radius:2px}
+.tw{overflow-x:auto;border-radius:10px;border:1px solid #2d3748}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#1a1f2e;color:#a0aec0;font-weight:600;text-align:center;padding:10px;border-bottom:1px solid #2d3748;white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+thead th:first-child{text-align:left;min-width:150px}
+tbody tr{border-bottom:1px solid #1a2033}
+tbody tr:hover{background:#1a1f2e}
+tbody td{padding:9px 10px;text-align:center}
+tbody td:first-child{text-align:left;font-weight:500;color:#fff}
+tbody tr.tot td{font-weight:700;color:#fff;background:#1a1f2e;border-top:2px solid #2d3748}
+.sb{display:inline-block;cursor:pointer;min-width:36px;border-radius:5px;padding:3px 6px;transition:background .12s}
+.sb:hover{background:rgba(255,255,255,.07)}
+.sb.z{color:#4a5568!important;cursor:default}.sb.z:hover{background:transparent}
+.sn{font-weight:600;font-size:13px}
+.br{height:3px;margin-top:3px;border-radius:2px;background:#2d3748}
+.bf{height:100%;border-radius:2px}
+.A{color:#63b3ed}.A .bf{background:#63b3ed}
+.B{color:#9f7aea}.B .bf{background:#9f7aea}
+.C{color:#f6ad55}.C .bf{background:#f6ad55}
+.D{color:#68d391}.D .bf{background:#68d391}
+.E{color:#81e6d9}.E .bf{background:#81e6d9}
+.F{color:#fc8181}.F .bf{background:#fc8181}
+.G{color:#718096}.G .bf{background:#718096}
+.H{color:#fff}.H .bf{background:#4a5568}
+
+/* ── CHARTS ── */
+.cr{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+.cc{background:#1a1f2e;border:1px solid #2d3748;border-radius:10px;padding:16px}
+.cc h3{font-size:11px;font-weight:600;color:#718096;margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px}
+
+/* ── MODAL ── */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;padding:24px;overflow-y:auto}
+.mo.open{display:flex;align-items:flex-start;justify-content:center}
+.md{background:#161b28;border:1px solid #2d3748;border-radius:12px;width:100%;max-width:960px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+.mh{padding:15px 20px;border-bottom:1px solid #2d3748;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.mh h2{font-size:15px;font-weight:700;color:#fff}
+.mhm{font-size:12px;color:#718096;margin-top:2px}
+.mx{background:#2d3748;border:none;color:#a0aec0;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+.mx:hover{background:#4a5568;color:#fff}
+.msr{padding:10px 20px;border-bottom:1px solid #2d3748;flex-shrink:0}
+.msr input{width:100%;background:#0f1117;border:1px solid #2d3748;color:#e2e8f0;padding:8px 12px;border-radius:7px;font-size:13px;outline:none}
+.msr input:focus{border-color:#3b4fd8}
+.msr input::placeholder{color:#4a5568}
+.mbody{overflow-y:auto;flex:1}
+.mcnt{font-size:12px;color:#718096;padding:8px 20px;border-bottom:1px solid #2d3748;flex-shrink:0}
+.at,.ut{width:100%;border-collapse:collapse;font-size:13px}
+.at th,.ut th{background:#1a1f2e;color:#718096;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px;padding:9px 14px;text-align:left;border-bottom:1px solid #2d3748;position:sticky;top:0;z-index:1}
+.at td,.ut td{padding:9px 14px;border-bottom:1px solid #1a2033;vertical-align:top}
+.at tr:last-child td,.ut tr:last-child td{border-bottom:none}
+.at tr:hover td,.ut tr:hover td{background:#1a1f2e}
+.an{font-weight:600;color:#fff}
+.ant{color:#a0aec0;font-size:12px;line-height:1.5}
+.ant.e{color:#4a5568;font-style:italic}
+.ur{display:inline-block;background:rgba(252,129,129,.12);color:#fc8181;font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid rgba(252,129,129,.2)}
+.ur.e{background:transparent;color:#4a5568;border-color:transparent;font-style:italic}
+.lb{display:inline-flex;align-items:center;gap:4px;color:#63b3ed;font-size:12px;text-decoration:none;margin-bottom:3px}
+.lb:hover{text-decoration:underline}
+.lb.w{color:#81e6d9}
+.si{font-size:11px;color:#a0aec0}
+.nr{padding:40px;text-align:center;color:#4a5568;font-size:14px}
+@media(max-width:800px){.cr{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════ PAGE 1: LOADING ═══════════════════ -->
+<div id="pg1" class="page">
+  <div style="font-size:38px" id="loadIcon">📊</div>
+  <h1>JJAS Account Stage Dashboard</h1>
+  <p id="loadMsg">Connecting to Supabase and loading accounts…</p>
+  <div class="err" id="e1"></div>
+</div>
+
+<!-- ═══════════════════ PAGE 2: COLUMN MAPPING ═══════════════════ -->
+<div id="pg2" style="display:none">
+  <div class="map-wrap">
+    <h2>🗂 Map your columns</h2>
+    <p id="pg2sub"></p>
+
+    <!-- Raw data preview -->
+    <div>
+      <div style="font-size:11px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+        ▸ Raw data preview — first 3 rows from your file
+      </div>
+      <div class="raw-preview" id="rawPreview"></div>
+    </div>
+
+    <!-- Mapping table -->
+    <div>
+      <div style="font-size:11px;font-weight:700;color:#4a5568;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+        ▸ Map each dashboard field to a column in your file
+      </div>
+      <div class="map-card">
+        <div class="map-card-hd">
+          <span>Dashboard field</span>
+          <span></span>
+          <span>Your CSV column</span>
+          <span>Sample data (from selected column)</span>
+        </div>
+        <div id="mapRows"></div>
+      </div>
+    </div>
+
+    <div class="err" id="e2"></div>
+    <div class="map-footer">
+      <span class="map-footer-note"><span style="color:#fc8181">★</span> Required &nbsp;·&nbsp; <span style="color:#718096">○</span> Optional — can be left blank if column doesn't exist in your file</span>
+      <button class="btn btn-ghost" onclick="showPage('pg1')">← Back</button>
+      <button class="btn btn-primary" onclick="doConfirm()">Build Dashboard →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ PAGE 3: DASHBOARD ═══════════════════ -->
+<div id="pg3" style="display:none">
+  <div class="fbar on" id="fbar">
+    <div class="fdot"></div>
+    <span class="finfo"><b>Supabase</b> &nbsp;·&nbsp; <span id="frecords">Loading…</span></span>
+    <button class="btn btn-ghost" onclick="fetchFromSupabase()">⟳ Refresh</button>
+  </div>
+
+  <div class="hdr">
+    <div><h1>📊 JJAS Account Stage Dashboard</h1><div class="sub">Account Ownership · Stage Tracker</div></div>
+    <span class="badge" id="rcnt">—</span>
+  </div>
+
+  <div class="ctrl">
+    <div class="mtabs">
+      <button class="mtab on"  onclick="setMonth(0)">All Months</button>
+      <button class="mtab"     onclick="setMonth(6)">June</button>
+      <button class="mtab"     onclick="setMonth(7)">July</button>
+      <button class="mtab"     onclick="setMonth(8)">August</button>
+      <button class="mtab"     onclick="setMonth(9)">September</button>
+    </div>
+    <div class="fg"><span class="fl">Rep</span>
+      <select id="fRep" onchange="render()"><option value="">All Reps</option></select></div>
+    <div class="fg"><span class="fl">Segment</span>
+      <select id="fSeg" onchange="render()"><option value="">All</option></select></div>
+    <div class="fg"><span class="fl">Lead Type</span>
+      <select id="fLead" onchange="render()">
+        <option value="">All</option>
+        <option value="1">Reactivation</option>
+        <option value="0">Outbound</option>
+      </select></div>
+    <div class="fg"><span class="fl">Acct Type</span>
+      <select id="fMnc" onchange="render()">
+        <option value="">All</option>
+        <option value="1">MNC</option>
+        <option value="0">India HQ</option>
+      </select></div>
+  </div>
+
+  <div class="mbar" id="mbar"></div>
+
+  <div class="main">
+    <div class="leg">
+      <span class="li"><span class="ld" style="background:#63b3ed"></span>Assigned</span>
+      <span class="li"><span class="ld" style="background:#9f7aea"></span>Prospect</span>
+      <span class="li"><span class="ld" style="background:#f6ad55"></span>Contacted</span>
+      <span class="li"><span class="ld" style="background:#68d391"></span>Converted</span>
+      <span class="li"><span class="ld" style="background:#81e6d9"></span>Future Opp.</span>
+      <span class="li"><span class="ld" style="background:#fc8181"></span>Unqualified</span>
+      <span class="li"><span class="ld" style="background:#718096"></span>Other</span>
+      <span style="font-size:11px;color:#4a5568;margin-left:6px">· Click any count to view accounts</span>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr>
+          <th>Account Owner</th>
+          <th class="A">Assigned</th><th class="B">Prospect</th>
+          <th class="C">Contacted</th><th class="D">Converted</th>
+          <th class="E">Future Opp.</th><th class="F">Unqualified</th>
+          <th class="G">Other</th><th class="H">Total</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="cr">
+      <div class="cc"><h3>Stage Distribution</h3><div style="position:relative;height:240px"><canvas id="pie"></canvas></div></div>
+      <div class="cc"><h3>Accounts by Rep</h3><div id="barWrap" style="position:relative;height:320px"><canvas id="bar"></canvas></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════ MODAL ═══════════════════ -->
+<div class="mo" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="md">
+    <div class="mh">
+      <div><h2 id="mtitle"></h2><div class="mhm" id="mmeta"></div></div>
+      <button class="mx" onclick="closeModal()">✕</button>
+    </div>
+    <div class="msr"><input type="text" id="msearch" placeholder="Search account name…" oninput="filterModal()"></div>
+    <div class="mcnt" id="mcnt"></div>
+    <div class="mbody" id="mbody"></div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  FIELD DEFINITIONS
+//  exact[]  → headers that are a direct match (tried first)
+//  aliases[] → other common names (tried second, exact only — no partial)
+// ══════════════════════════════════════════════
+const FIELDS = [
+  { key:'owner', label:'Account Owner', req:true,
+    desc:'Sales rep who owns the account',
+    exact:['Account Owner'],
+    aliases:['Owner','Rep Name','Sales Rep','Assigned To','Account Manager'] },
+
+  { key:'name', label:'Account Name', req:true,
+    desc:'Company / account name',
+    exact:['Account Name'],
+    aliases:['Company Name','Company','Account','Client','Client Name'] },
+
+  { key:'stage', label:'Account Stage', req:true,
+    desc:'Assigned / Prospect / Contacted / Converted / Future Opportunity / Unqualified / Not SAL',
+    exact:['Account Stage'],
+    aliases:['Stage','Status','Deal Stage','Pipeline Stage'] },
+
+  { key:'month', label:'Renewal Month', req:true,
+    desc:'Number: 6=June, 7=July, 8=Aug, 9=Sep',
+    exact:['Non Verified Renewal Month'],
+    aliases:['Renewal Month','Month','Non Verified Month'] },
+
+  { key:'react', label:'Reactivation Lead', req:false,
+    desc:'Yes / No',
+    exact:['Reactivation Lead'],
+    aliases:['Reactivation','Is Reactivation'] },
+
+  { key:'mnc', label:'MNC Account', req:false,
+    desc:'Yes / No',
+    exact:['MNC Account'],
+    aliases:['MNC','Is MNC'] },
+
+  { key:'seg', label:'Market Segment', req:false,
+    desc:'e.g. SMB, MM, Enterprise',
+    exact:['Market Segment'],
+    aliases:['Segment','Account Segment','Customer Segment'] },
+
+  { key:'notes', label:'Notes', req:false,
+    desc:'Free-text notes / activity log',
+    exact:['Notes'],
+    aliases:['Comments','Activity Notes','Remarks','Note'] },
+
+  { key:'li', label:'LinkedIn URL', req:false,
+    desc:'LinkedIn company page',
+    exact:['LinkedIn'],
+    aliases:['LinkedIn URL','LinkedIn Profile','LinkedIn Link'] },
+
+  { key:'si', label:'Sub-Industry', req:false,
+    desc:'Industry / sub-industry vertical',
+    exact:['Sub-Industry'],
+    aliases:['Sub Industry','Industry','Vertical','Sector'] },
+
+  { key:'uqr', label:'Unqualified Reason', req:false,
+    desc:'Why the account was disqualified',
+    exact:['Account Unqualified Reason'],
+    aliases:['Unqualified Reason','Disqualification Reason','Lost Reason'] },
+];
+
+// ══════════════════════════════════════════════
+//  CONSTANTS
+// ══════════════════════════════════════════════
+const STAGE_MAP   = {'assigned':'AS','prospect':'PR','contacted':'CO','converted':'CV','future opportunity':'FO','unqualified':'UQ','not sal':'NS'};
+const STAGE_LBL   = {AS:'Assigned',PR:'Prospect',CO:'Contacted',CV:'Converted',FO:'Future Opp.',UQ:'Unqualified',NS:'Other'};
+const STAGE_COL   = {AS:'#63b3ed',PR:'#9f7aea',CO:'#f6ad55',CV:'#68d391',FO:'#81e6d9',UQ:'#fc8181',NS:'#718096'};
+const STAGE_CLS   = {AS:'A',PR:'B',CO:'C',CV:'D',FO:'E',UQ:'F',NS:'G'};
+const MN          = {0:'All Months',6:'June',7:'July',8:'August',9:'September'};
+const KEYS        = ['AS','PR','CO','CV','FO','UQ','NS'];
+
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+let _headers  = [];   // string[]
+let _rows     = [];   // string[][] — data rows only (no header)
+let _filename = '';
+let _RAW      = [];
+let _owners   = [];
+let _month    = 0;
+let _pie      = null, _bar = null;
+let _modal    = [];
+
+// ══════════════════════════════════════════════
+//  SUPABASE CONFIG
+// ══════════════════════════════════════════════
+const SUPABASE_URL = 'https://gnpgphqpvapyfhymmmhk.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducGdwaHFwdmFweWZoeW1tbWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDczNDUsImV4cCI6MjA5NDU4MzM0NX0.xcdSGfHrQc6OktEUbbwhvDV3NQ8bGK8pf152P-iGFeE'; // Use anon key, NOT service role key
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ══════════════════════════════════════════════
+//  FETCH FROM SUPABASE
+// ══════════════════════════════════════════════
+async function fetchFromSupabase() {
+  try {
+    document.getElementById('loadMsg') && (document.getElementById('loadMsg').textContent = 'Fetching accounts from Supabase…');
+
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      setErr('e1', 'No data found in the accounts table. Make sure your Google Sheet has synced via n8n.');
+      return;
+    }
+
+    // Transform Supabase rows → internal _RAW format
+    _RAW = data.map(function(row) {
+      const stageRaw = (row.account_stage || '').toLowerCase();
+      const stage = STAGE_MAP[stageRaw] || 'NS';
+      const mo = parseInt(row.non_verified_renewal_month);
+
+      return {
+        owner: row.account_owner || '',
+        name:  row.account_name || '',
+        stage: stage,
+        react: row.reactivation_lead === true || (row.reactivation_lead + '').toLowerCase() === 'yes' ? 1 : 0,
+        mnc:   row.mnc_account === true || (row.mnc_account + '').toLowerCase() === 'yes' ? 1 : 0,
+        seg:   row.market_segment || '',
+        month: isNaN(mo) ? 0 : mo,
+        notes: (row.notes || '').slice(0, 400),
+        li:    row.linkedin || '',
+        si:    row.sub_industry || '',
+        uqr:   row.account_unqualified_reason || '',
+      };
+    });
+
+    // Populate dropdowns
+    _owners = [...new Set(_RAW.map(function(r) { return r.owner; }))].filter(Boolean).sort();
+    const segs = [...new Set(_RAW.map(function(r) { return r.seg; }))].filter(Boolean).sort();
+
+    const repSel = document.getElementById('fRep');
+    repSel.innerHTML = '<option value="">All Reps</option>';
+    _owners.forEach(function(o) {
+      const opt = document.createElement('option');
+      opt.value = o; opt.textContent = o;
+      repSel.appendChild(opt);
+    });
+
+    const segSel = document.getElementById('fSeg');
+    segSel.innerHTML = '<option value="">All Segments</option>';
+    segs.forEach(function(s) {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      segSel.appendChild(opt);
+    });
+
+    ['fRep','fSeg','fLead','fMnc'].forEach(function(id) {
+      document.getElementById(id).value = '';
+    });
+
+    document.getElementById('frecords').textContent = _RAW.length.toLocaleString() + ' accounts';
+    document.getElementById('fbar').classList.add('on');
+
+    showPage('pg3');
+    setMonth(0);
+
+  } catch (err) {
+    setErr('e1', 'Failed to load data: ' + err.message);
+    console.error('Supabase error:', err);
+  }
+}
+
+// ══════════════════════════════════════════════
+//  REAL-TIME SUBSCRIPTION (auto-refresh on changes)
+// ══════════════════════════════════════════════
+function setupRealtime() {
+  supabase
+    .channel('accounts-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, function(payload) {
+      console.log('Supabase change detected:', payload.eventType);
+      fetchFromSupabase();
+    })
+    .subscribe();
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', function() {
+  fetchFromSupabase();
+  setupRealtime();
+});
+
+// ══════════════════════════════════════════════
+//  READ + PARSE FILE
+// ══════════════════════════════════════════════
+function readFile(file) {
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    setErr('e1', 'Please upload a .csv file.');
+    return;
+  }
+  _filename = file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    let text = e.target.result;
+    // Strip BOM
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    try { onCSVLoaded(csvParse(text)); }
+    catch(ex) { setErr('e1', 'Parse error: ' + ex.message); }
+  };
+  reader.onerror = function() { setErr('e1', 'Could not read the file.'); };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function csvParse(text) {
+  // Normalise line endings
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = [];
+  let cur = '', inQ = false, row = [];
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') {
+      if (inQ && text[i + 1] === '"') { cur += '"'; i++; }  // escaped ""
+      else inQ = !inQ;                                       // open / close quote
+    } else if (c === ',' && !inQ) {
+      row.push(cur); cur = '';
+    } else if (c === '\n' && !inQ) {
+      row.push(cur); cur = '';
+      if (row.some(v => v.trim() !== '')) rows.push(row);
+      row = [];
+    } else {
+      cur += c;
+    }
+  }
+  // last field
+  row.push(cur);
+  if (row.some(v => v.trim() !== '')) rows.push(row);
+  return rows;
+}
+
+function onCSVLoaded(rows) {
+  if (rows.length < 2) { setErr('e1', 'File has no data rows.'); return; }
+  _headers = rows[0].map(h => h.trim());
+  _rows    = rows.slice(1);
+
+  document.getElementById('pg2sub').textContent =
+    _filename + ' · ' + _headers.length + ' columns · ' + _rows.length.toLocaleString() + ' rows';
+
+  buildRawPreview();
+  buildMapRows();
+  showPage('pg2');
+}
+
+// ══════════════════════════════════════════════
+//  RAW DATA PREVIEW TABLE
+// ══════════════════════════════════════════════
+function buildRawPreview() {
+  const previewRows = _rows.slice(0, 3);
+  let html = '<table><thead><tr><th>#</th>';
+  _headers.forEach((h, i) => {
+    html += `<th title="col ${i}">${he(h)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  previewRows.forEach((row, ri) => {
+    html += `<tr><td>${ri + 1}</td>`;
+    _headers.forEach((_, ci) => {
+      const v = (row[ci] || '').trim();
+      html += `<td title="${he(v)}">${he(v.length > 30 ? v.slice(0, 30) + '…' : v)}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('rawPreview').innerHTML = html;
+}
+
+// ══════════════════════════════════════════════
+//  MAPPING UI
+// ══════════════════════════════════════════════
+function buildMapRows() {
+  const container = document.getElementById('mapRows');
+  container.innerHTML = '';
+
+  FIELDS.forEach(function(field) {
+    const matched = bestMatch(field);
+
+    const div = document.createElement('div');
+    div.className = 'map-row';
+
+    // Build <select> options: blank + each header
+    let opts = `<option value="-1">— not in my file —</option>`;
+    _headers.forEach(function(h, i) {
+      opts += `<option value="${i}"${matched === i ? ' selected' : ''}>${he(h)}</option>`;
+    });
+
+    div.innerHTML = `
+      <div class="field-info">
+        <div class="fl">${he(field.label)} <span class="rbadge ${field.req ? 'req' : 'opt'}">${field.req ? '★ Required' : '○ Optional'}</span></div>
+        <div class="fd">${he(field.desc)}</div>
+      </div>
+      <div class="arrow">→</div>
+      <select id="m_${field.key}" onchange="onSelChange('${field.key}')">${opts}</select>
+      <div class="sample ${matched >= 0 ? '' : 'empty'}" id="s_${field.key}">
+        ${matched >= 0 ? getSample(matched) : 'no match found'}
+      </div>`;
+
+    container.appendChild(div);
+    styleSelect(field.key);
+  });
+}
+
+// Strict matching: exact name first, then aliases — NO partial/substring matching
+function bestMatch(field) {
+  const norm = function(s) { return s.trim().toLowerCase(); };
+
+  // Try exact[] list first
+  for (let i = 0; i < field.exact.length; i++) {
+    const idx = _headers.findIndex(function(h) { return norm(h) === norm(field.exact[i]); });
+    if (idx >= 0) return idx;
+  }
+  // Try aliases[] — exact match only
+  for (let i = 0; i < field.aliases.length; i++) {
+    const idx = _headers.findIndex(function(h) { return norm(h) === norm(field.aliases[i]); });
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function onSelChange(key) {
+  styleSelect(key);
+  const sel = document.getElementById('m_' + key);
+  const idx = parseInt(sel.value);
+  const sEl = document.getElementById('s_' + key);
+  if (idx >= 0) {
+    sEl.textContent = getSample(idx);
+    sEl.className = 'sample';
+  } else {
+    sEl.textContent = 'not mapped';
+    sEl.className = 'sample empty';
+  }
+}
+
+function styleSelect(key) {
+  const sel = document.getElementById('m_' + key);
+  sel.className = parseInt(sel.value) >= 0 ? 'matched' : 'unmatched';
+}
+
+function getSample(colIdx) {
+  const vals = [];
+  for (let i = 0; i < _rows.length && vals.length < 3; i++) {
+    const v = (_rows[i][colIdx] || '').trim();
+    if (v && v.toLowerCase() !== 'nan') {
+      vals.push(v.length > 40 ? v.slice(0, 40) + '…' : v);
+    }
+  }
+  return vals.length ? vals.join('  ·  ') : '(empty column)';
+}
+
+// ══════════════════════════════════════════════
+//  CONFIRM MAPPING → BUILD
+// ══════════════════════════════════════════════
+function doConfirm() {
+  const m = {};
+  let valid = true;
+
+  FIELDS.forEach(function(field) {
+    const sel = document.getElementById('m_' + field.key);
+    const idx = parseInt(sel.value);
+    m[field.key] = idx;  // -1 means not mapped
+    if (field.req && idx < 0) {
+      setErr('e2', '"' + field.label + '" is required — please select a column for it.');
+      valid = false;
+    }
+  });
+
+  if (!valid) return;
+  clearErr('e2');
+  buildData(m);
+}
+
+function buildData(m) {
+  // Helper: safely get cell value by column index
+  function get(row, idx) {
+    if (idx < 0 || idx >= row.length) return '';
+    return (row[idx] || '').trim();
+  }
+
+  _RAW = [];
+  _rows.forEach(function(row) {
+    // Skip fully blank rows
+    if (row.every(function(c) { return !c.trim(); })) return;
+
+    const stageRaw = get(row, m.stage).toLowerCase();
+    const stage    = STAGE_MAP[stageRaw] || 'NS';
+    const mo       = parseInt(get(row, m.month));
+
+    _RAW.push({
+      owner: get(row, m.owner),
+      name:  get(row, m.name),
+      stage: stage,
+      react: get(row, m.react).toLowerCase() === 'yes' ? 1 : 0,
+      mnc:   get(row, m.mnc).toLowerCase()   === 'yes' ? 1 : 0,
+      seg:   get(row, m.seg),
+      month: isNaN(mo) ? 0 : mo,
+      notes: get(row, m.notes).slice(0, 400),
+      li:    get(row, m.li),
+      si:    get(row, m.si),
+      uqr:   get(row, m.uqr),
+    });
+  });
+
+  // Populate dropdowns
+  _owners = [...new Set(_RAW.map(function(r) { return r.owner; }))].filter(Boolean).sort();
+  const segs = [...new Set(_RAW.map(function(r) { return r.seg; }))].filter(Boolean).sort();
+
+  const repSel = document.getElementById('fRep');
+  repSel.innerHTML = '<option value="">All Reps</option>';
+  _owners.forEach(function(o) {
+    const opt = document.createElement('option');
+    opt.value = o; opt.textContent = o;
+    repSel.appendChild(opt);
+  });
+
+  const segSel = document.getElementById('fSeg');
+  segSel.innerHTML = '<option value="">All Segments</option>';
+  segs.forEach(function(s) {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    segSel.appendChild(opt);
+  });
+
+  ['fRep','fSeg','fLead','fMnc'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+
+  document.getElementById('fname').textContent    = _filename;
+  document.getElementById('frecords').textContent = _RAW.length.toLocaleString() + ' accounts';
+  document.getElementById('fbar').classList.add('on');
+
+  showPage('pg3');
+  setMonth(0);
+}
+
+// ══════════════════════════════════════════════
+//  PAGE NAVIGATION
+// ══════════════════════════════════════════════
+function showPage(id) {
+  ['pg1','pg2','pg3'].forEach(function(p) {
+    const el = document.getElementById(p);
+    el.style.display = p === id ? (p === 'pg3' ? 'block' : 'flex') : 'none';
+  });
+  if (id !== 'pg3') document.getElementById('fbar').classList.remove('on');
+  else document.getElementById('fbar').classList.add('on');
+}
+
+// ══════════════════════════════════════════════
+//  DASHBOARD RENDER
+// ══════════════════════════════════════════════
+function setMonth(m) {
+  _month = m;
+  document.querySelectorAll('.mtab').forEach(function(t, i) {
+    t.classList.toggle('on', [0,6,7,8,9][i] === m);
+  });
+  render();
+}
+
+function getFiltered() {
+  const rep  = document.getElementById('fRep').value;
+  const seg  = document.getElementById('fSeg').value;
+  const lead = document.getElementById('fLead').value;
+  const mnc  = document.getElementById('fMnc').value;
+  return _RAW.filter(function(r) {
+    if (_month !== 0 && r.month !== _month) return false;
+    if (rep  && r.owner !== rep) return false;
+    if (seg  && r.seg   !== seg) return false;
+    if (lead !== '' && r.react !== parseInt(lead)) return false;
+    if (mnc  !== '' && r.mnc   !== parseInt(mnc))  return false;
+    return true;
+  });
+}
+
+function render() {
+  const data   = getFiltered();
+  const rep    = document.getElementById('fRep').value;
+  const owners = rep ? [rep] : _owners;
+  document.getElementById('rcnt').textContent = data.length.toLocaleString() + ' accounts';
+
+  const stats = {};
+  owners.forEach(function(o) { stats[o] = {AS:0,PR:0,CO:0,CV:0,FO:0,UQ:0,NS:0,total:0}; });
+  data.forEach(function(r) {
+    if (!stats[r.owner]) return;
+    const s = KEYS.includes(r.stage) ? r.stage : 'NS';
+    stats[r.owner][s]++;
+    stats[r.owner].total++;
+  });
+
+  const tot = {AS:0,PR:0,CO:0,CV:0,FO:0,UQ:0,NS:0,total:0};
+  owners.forEach(function(o) {
+    KEYS.concat(['total']).forEach(function(k) { tot[k] += stats[o][k]; });
+  });
+  const maxT = Math.max.apply(null, owners.map(function(o) { return stats[o].total; }).concat([1]));
+  const pct  = function(n, d) { return d ? (n / d * 100).toFixed(1) : '0.0'; };
+
+  // Metrics
+  document.getElementById('mbar').innerHTML = [
+    ['Total',      tot.total, '#e2e8f0', ''],
+    ['Assigned',   tot.AS,    '#63b3ed', pct(tot.AS, tot.total) + '%'],
+    ['Prospect',   tot.PR,    '#9f7aea', pct(tot.PR, tot.total) + '%'],
+    ['Contacted',  tot.CO,    '#f6ad55', pct(tot.CO + tot.CV, tot.total) + '% engaged'],
+    ['Converted',  tot.CV,    '#68d391', pct(tot.CV, tot.total) + '% conv. rate'],
+    ['Future Opp.',tot.FO,    '#81e6d9', pct(tot.FO, tot.total) + '%'],
+    ['Unqualified',tot.UQ,    '#fc8181', pct(tot.UQ, tot.total) + '%'],
+  ].map(function(x) {
+    return '<div class="mc"><div class="ml">' + x[0] + '</div><div class="mv" style="color:' + x[2] + '">' +
+      x[1].toLocaleString() + '</div>' + (x[3] ? '<div class="mp" style="color:' + x[2] + '">' + x[3] + '</div>' : '') + '</div>';
+  }).join('');
+
+  // Table
+  document.getElementById('tbody').innerHTML =
+    owners.filter(function(o) { return rep || stats[o].total > 0; }).map(function(o) {
+      const s = stats[o], p = (s.total / maxT * 100).toFixed(0);
+      return '<tr><td>' + he(o) + '</td>' +
+        KEYS.map(function(k) {
+          return '<td class="' + STAGE_CLS[k] + '">' + stageBtn(o, k, s[k], s.total) + '</td>';
+        }).join('') +
+        '<td class="H"><div style="font-weight:700">' + s.total + '</div>' +
+        '<div class="br"><div class="bf" style="width:' + p + '%;background:#4a5568"></div></div></td></tr>';
+    }).join('') +
+    '<tr class="tot"><td>TOTAL</td>' +
+    KEYS.map(function(k) {
+      return '<td class="' + STAGE_CLS[k] + '" style="font-weight:700">' + tot[k].toLocaleString() + '</td>';
+    }).join('') +
+    '<td class="H" style="font-weight:700">' + tot.total.toLocaleString() + '</td></tr>';
+
+  // Pie
+  if (_pie) _pie.destroy();
+  _pie = new Chart(document.getElementById('pie'), {
+    type: 'doughnut',
+    data: { labels: KEYS.map(function(k) { return STAGE_LBL[k]; }),
+      datasets: [{ data: KEYS.map(function(k) { return tot[k]; }),
+        backgroundColor: KEYS.map(function(k) { return STAGE_COL[k]; }),
+        borderColor: '#161b28', borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) {
+          return ' ' + ctx.label + ': ' + ctx.raw + ' (' + pct(ctx.raw, tot.total) + '%)';
+        }}}}}
+  });
+
+  // Bar
+  const reps = owners.filter(function(o) { return stats[o].total > 0; });
+  document.getElementById('barWrap').style.height = Math.max(260, reps.length * 34) + 'px';
+  if (_bar) _bar.destroy();
+  _bar = new Chart(document.getElementById('bar'), {
+    type: 'bar',
+    data: { labels: reps.map(function(l) { return l.split(' ')[0]; }),
+      datasets: [
+        { label: 'Total',     data: reps.map(function(o) { return stats[o].total; }), backgroundColor: '#2d3748', borderRadius: 3 },
+        { label: 'Converted', data: reps.map(function(o) { return stats[o].CV; }),    backgroundColor: '#68d391', borderRadius: 3 }
+      ]},
+    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      plugins: { legend: { labels: { color: '#a0aec0', font: { size: 11 } } } },
+      scales: { x: { ticks: { color: '#718096' }, grid: { color: '#2d3748' } },
+                y: { ticks: { color: '#a0aec0', font: { size: 11 } }, grid: { color: '#2d3748' } } } }
+  });
+}
+
+function stageBtn(owner, stage, count, total) {
+  if (!count) return '<span class="sb z">—</span>';
+  const p = total ? (count / total * 100).toFixed(0) : 0;
+  return '<div class="sb" onclick="openModal(\'' + es(owner) + '\',\'' + stage + '\')" title="View accounts">' +
+    '<div class="sn">' + count + '</div>' +
+    '<div class="br"><div class="bf" style="width:' + p + '%"></div></div></div>';
+}
+
+// ══════════════════════════════════════════════
+//  MODAL
+// ══════════════════════════════════════════════
+function openModal(owner, stage) {
+  const lead = document.getElementById('fLead').value;
+  const mnc  = document.getElementById('fMnc').value;
+  const seg  = document.getElementById('fSeg').value;
+
+  _modal = _RAW.filter(function(r) {
+    if (r.owner !== owner) return false;
+    if (_month !== 0 && r.month !== _month) return false;
+    if (seg  && r.seg !== seg) return false;
+    if (lead !== '' && r.react !== parseInt(lead)) return false;
+    if (mnc  !== '' && r.mnc   !== parseInt(mnc))  return false;
+    return (KEYS.includes(r.stage) ? r.stage : 'NS') === stage;
+  });
+
+  document.getElementById('mtitle').textContent = STAGE_LBL[stage] + ' — ' + owner;
+  document.getElementById('mmeta').textContent  = MN[_month] + ' · ' + _modal.length + ' account' + (_modal.length !== 1 ? 's' : '');
+  document.getElementById('msearch').value = '';
+  renderModal(_modal, stage);
+  document.getElementById('modal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function filterModal() {
+  const q  = document.getElementById('msearch').value.toLowerCase().trim();
+  const f  = q ? _modal.filter(function(r) { return r.name.toLowerCase().includes(q); }) : _modal;
+  const lbl = document.getElementById('mtitle').textContent.split(' — ')[0];
+  const key = Object.keys(STAGE_LBL).find(function(k) { return STAGE_LBL[k] === lbl; }) || 'AS';
+  renderModal(f, key);
+}
+
+function renderModal(accounts, stage) {
+  document.getElementById('mcnt').textContent = 'Showing ' + accounts.length + ' account' + (accounts.length !== 1 ? 's' : '');
+  const body = document.getElementById('mbody');
+  if (!accounts.length) { body.innerHTML = '<div class="nr">No accounts found.</div>'; return; }
+  stage === 'UQ' ? renderUQ(accounts, body) : renderStd(accounts, body);
+}
+
+function renderStd(accounts, body) {
+  body.innerHTML = '<table class="at"><thead><tr>' +
+    '<th style="min-width:180px">Account</th><th>Notes</th><th style="width:90px">Links</th>' +
+    '</tr></thead><tbody>' +
+    accounts.map(function(r) {
+      return '<tr>' +
+        '<td><div class="an">' + he(r.name) + '</div>' + (r.si ? '<div class="si">' + he(r.si) + '</div>' : '') + '</td>' +
+        '<td>' + (r.notes ? '<span class="ant">' + he(r.notes) + '</span>' : '<span class="ant e">No notes</span>') + '</td>' +
+        '<td>' + (r.li ? '<a class="lb" href="' + liUrl(r.li) + '" target="_blank">' + icoL() + 'LinkedIn</a>' : '') + '</td>' +
+        '</tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function renderUQ(accounts, body) {
+  body.innerHTML = '<table class="ut"><thead><tr>' +
+    '<th style="min-width:150px">Account</th>' +
+    '<th style="min-width:170px">Unqualified Reason</th>' +
+    '<th style="min-width:200px">Notes</th>' +
+    '<th style="min-width:130px">Sub-Industry</th>' +
+    '<th style="width:110px">Links</th>' +
+    '</tr></thead><tbody>' +
+    accounts.map(function(r) {
+      return '<tr>' +
+        '<td><div class="an">' + he(r.name) + '</div></td>' +
+        '<td>' + (r.uqr ? '<span class="ur">' + he(r.uqr) + '</span>' : '<span class="ur e">—</span>') + '</td>' +
+        '<td>' + (r.notes ? '<span class="ant">' + he(r.notes) + '</span>' : '<span class="ant e">No notes</span>') + '</td>' +
+        '<td>' + (r.si ? '<span class="si">' + he(r.si) + '</span>' : '') + '</td>' +
+        '<td style="white-space:nowrap">' +
+          (r.li ? '<a class="lb"   href="' + liUrl(r.li)  + '" target="_blank">' + icoL() + 'LinkedIn</a><br>' : '') +
+          (r.li ? '<a class="lb w" href="' + webUrl(r.li) + '" target="_blank">' + icoG() + 'Website</a>'  : '') +
+        '</td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+// ══════════════════════════════════════════════
+//  UTILITIES
+// ══════════════════════════════════════════════
+function liUrl(li)  { return li.match(/^https?:\/\//) ? li : 'https://' + li; }
+function webUrl(li) { const m = li.match(/linkedin\.com\/company\/([^/?]+)/); return m ? 'https://www.' + m[1] + '.com' : liUrl(li); }
+function he(s)      { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function es(s)      { return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+function icoL()     { return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>'; }
+function icoG()     { return '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-1px;margin-right:3px"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>'; }
+function setErr(id, msg)  { const e = document.getElementById(id); e.textContent = '⚠ ' + msg; e.classList.add('show'); }
+function clearErr(id)     { document.getElementById(id).classList.remove('show'); }
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
