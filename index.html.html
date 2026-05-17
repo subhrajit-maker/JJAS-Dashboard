@@ -386,7 +386,7 @@ let _modal    = [];
 // ══════════════════════════════════════════════
 const SUPABASE_URL = 'https://gnpgphqpvapyfhymmmhk.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImducGdwaHFwdmFweWZoeW1tbWhrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDczNDUsImV4cCI6MjA5NDU4MzM0NX0.xcdSGfHrQc6OktEUbbwhvDV3NQ8bGK8pf152P-iGFeE'; // Use anon key, NOT service role key
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const _sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ══════════════════════════════════════════════
 //  FETCH FROM SUPABASE
@@ -395,7 +395,7 @@ async function fetchFromSupabase() {
   try {
     document.getElementById('loadMsg') && (document.getElementById('loadMsg').textContent = 'Fetching accounts from Supabase…');
 
-    const { data, error } = await supabase
+    const { data, error } = await _sb
       .from('accounts')
       .select('*');
 
@@ -458,6 +458,7 @@ async function fetchFromSupabase() {
 
   } catch (err) {
     setErr('e1', 'Failed to load data: ' + err.message);
+    document.getElementById('loadMsg') && (document.getElementById('loadMsg').textContent = '❌ Error — check below');
     console.error('Supabase error:', err);
   }
 }
@@ -466,7 +467,7 @@ async function fetchFromSupabase() {
 //  REAL-TIME SUBSCRIPTION (auto-refresh on changes)
 // ══════════════════════════════════════════════
 function setupRealtime() {
-  supabase
+  _sb
     .channel('accounts-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, function(payload) {
       console.log('Supabase change detected:', payload.eventType);
